@@ -12,10 +12,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
-<link rel="icon" type="image/png" href="favicon.png">
-<script src="_mtfb.js?v=1"></script>
-<script>window.MT_APP={id:"ponto",name:"PontoAI"};</script>
-<script type="module" src="_mtauth.js?v=8"></script>
 <style>
 :root{--petrol:#2563eb;--petrol-dark:#1e40af;--ink:#0f172a;--bg:#f4f7fb;--soft:#e8f0fe;--line:#e6ebf3;--line-strong:#d8e0ec;--muted:#64748b;--surface:#fff;--ok:#16a34a;--warn:#b45309;--warn-soft:#fef3c7;--danger:#dc2626;--shadow:0 1px 2px rgba(15,23,42,.05),0 6px 18px rgba(15,23,42,.06)}
 *{box-sizing:border-box}
@@ -165,10 +161,12 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
     <div class="keybar" style="margin-top:16px">
       <span class="ti ti-sparkles"></span>
       <div style="flex:1;min-width:180px">
-        <b style="font-size:13px">IA incluída na sua conta MedTech</b>
-        <div style="font-size:12px;color:var(--muted)">A leitura da foto da folha manual usa a IA central — sem precisar de chave. O motor de PDF/planilha funciona mesmo sem IA.</div>
+        <b style="font-size:13px">Chave Gemini (para ler a foto da folha manual)</b>
+        <div style="font-size:12px;color:var(--muted)">Opcional. O motor de PDF/planilha funciona sem chave. <span class="linkish" onclick="window.open('https://aistudio.google.com/apikey','_blank')">Pegar chave</span></div>
       </div>
+      <input id="apiKey" type="password" placeholder="cole a chave (AIza...)" autocomplete="off">
     </div>
+    <label class="econrow"><input type="checkbox" id="econMode" checked><span><b>Modo econômico</b> — desliga o raciocínio (“thinking”) da IA. Mais barato e rápido; recomendado para esta tarefa.</span></label>
 
     <div class="row-actions">
       <button class="btn btn-primary" id="genBtn"><span class="ti ti-wand"></span>Gerar folha de ponto</button>
@@ -220,6 +218,12 @@ document.getElementById('hrscLogo').src=HRSC_LOGO;
 let SOURCES=[];           // {name, kind, records:[...], meta:{nome,pis}, image?:{mime,b64}}
 let GRID=[];              // linhas da folha do mês
 
+/* restaura chave (BYOK) */
+document.getElementById('apiKey').value=loadLS('pontoai_key','')||'';
+document.getElementById('apiKey').addEventListener('change',e=>saveLS('pontoai_key',e.target.value.trim()));
+/* modo econômico (thinking desligado) — padrão ligado, persistido */
+document.getElementById('econMode').checked=loadLS('pontoai_econ',true)!==false;
+document.getElementById('econMode').addEventListener('change',e=>saveLS('pontoai_econ',e.target.checked));
 
 /* registro por residente (dados administrativos que não vêm no ponto) */
 ['h_mat','h_prog','h_cat'].forEach(id=>document.getElementById(id).addEventListener('change',saveRegistry));
@@ -449,11 +453,12 @@ function buildGrid(){
   }
 }
 
-/* ============ IA central (sem chave, via login MedTech) — lê a foto da folha manual ============ */
+/* ============ IA (BYOK) — lê a foto da folha manual ============ */
 async function aiTreat(){
   const imgs=SOURCES.filter(s=>s.kind==='image');
   if(!imgs.length) return;                                   // IA só entra para ler a foto manual
-  if(!window.MT || !MT.user || !MT.aiImage) throw new Error('Entre na sua conta MedTech para ler a folha manual com IA.');
+  const key=document.getElementById('apiKey').value.trim();
+  if(!key) throw new Error('Foto anexada, mas sem chave Gemini — adicione a chave para ler a folha manual.');
 
   const mes=+document.getElementById('h_mes').value, ano=+document.getElementById('h_ano').value;
   const compact=GRID.filter(g=>g.hasData||g.obs).map(g=>({dia:g.key,entrada:g.entrada,saida:g.saida,status:g.status,obs:g.obs}));
@@ -470,9 +475,16 @@ Responda SOMENTE um JSON válido, sem texto fora dele, no formato:
 Só inclua dias com alguma informação a acrescentar/corrigir. Consolidação automática:
 ${JSON.stringify(compact)}`;
 
-  // IA central MedTech (Vertex, sem chave): geminiImage recebe imagens + prompt e devolve texto
-  const images=imgs.map(im=>({data:im.image.b64,mimeType:im.image.mime}));
-  const txt=await MT.aiImage(images,prompt);
+  const parts=[{text:prompt}];
+  imgs.forEach(im=>parts.push({inline_data:{mime_type:im.image.mime,data:im.image.b64}}));
+  const genCfg={temperature:0.1,responseMimeType:'application/json'};
+  if(document.getElementById('econMode').checked) genCfg.thinkingConfig={thinkingBudget:0};   // modo econômico
+  const url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(key);
+  const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:genCfg})});
+  if(!res.ok){ const t=await res.text(); throw new Error('Gemini '+res.status+': '+t.slice(0,160)); }
+  const data=await res.json();
+  const txt=(((data.candidates||[])[0]||{}).content||{}).parts?.map(p=>p.text).join('')||'';
   let parsed; try{ parsed=JSON.parse(txt); }catch(e){ const m=txt.match(/\{[\s\S]*\}/); parsed=m?JSON.parse(m[0]):{dias:[]}; }
   const map={}; (parsed.dias||[]).forEach(x=>map[normDate(x.dia)]=x);
   GRID.forEach(g=>{
