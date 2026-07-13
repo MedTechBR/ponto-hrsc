@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#2563eb">
-<title>PontoAI — Gestão de ponto da residência</title>
+<title>PontoAI — Gestão de ponto (HRSC)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -74,6 +74,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--petrol);
 .obs-area textarea{min-height:60px;resize:vertical}
 .warnbox{background:var(--warn-soft);border:1px solid #fcd34d;border-radius:10px;padding:11px 14px;font-size:13px;color:#7c2d12;display:flex;gap:9px;align-items:flex-start;margin-bottom:14px}
 .warnbox .ti{font-size:18px;flex:0 0 auto;margin-top:1px}
+/* ---- abas de programa ---- */
+.tabbar{display:flex;gap:8px;margin-bottom:16px}
+.tabbtn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-strong);background:#fff;color:var(--muted);font-weight:700;font-size:13.5px;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:inherit}
+.tabbtn .ti{font-size:17px}
+.tabbtn:hover{background:var(--bg)}
+.tabbtn.active{background:var(--petrol);border-color:var(--petrol);color:#fff}
 /* ---- identificação HRSC ---- */
 .hrsc-banner{display:flex;align-items:center;gap:14px;padding-bottom:15px;border-bottom:1px solid var(--line);margin-bottom:16px}
 .hrsc-banner img{height:44px;width:auto}
@@ -83,6 +89,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--petrol);
 .resid-empty .ti{font-size:26px;color:var(--petrol);flex:0 0 auto}
 .resid-empty p{margin:0;font-size:13.5px}
 .frombadge{font-size:10.5px;font-weight:700;color:var(--petrol-dark);background:var(--soft);padding:1px 6px;border-radius:10px;margin-left:5px;text-transform:none}
+.pchip{border:1px solid var(--line-strong);background:#fff;color:var(--ink);font-weight:600;font-size:12.5px;padding:7px 13px;border-radius:20px;cursor:pointer;font-family:inherit}
+.pchip:hover{background:var(--bg)}
+.pchip.active{background:var(--petrol);border-color:var(--petrol);color:#fff}
 input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:default}
 .admin-more{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
 .admin-more summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--petrol);display:flex;align-items:center;gap:6px;list-style:none}
@@ -112,16 +121,21 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
 </head>
 <body>
 <header class="top noprint">
-  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — residência médica</small></div></div>
+  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC</small></div></div>
 </header>
 
 <div class="wrap">
+
+  <div class="tabbar noprint" id="tabbar">
+    <button class="tabbtn active" data-ctx="residencia" type="button"><span class="ti ti-stethoscope"></span>Residência</button>
+    <button class="tabbtn" data-ctx="especialistas" type="button"><span class="ti ti-briefcase-medical"></span>Mais Especialistas</button>
+  </div>
 
   <!-- 1. Identificação (HRSC fixo + auto do arquivo) -->
   <div class="card noprint">
     <div class="hrsc-banner">
       <img id="hrscLogo" alt="Hospital Regional do Sertão Central">
-      <div><b>Hospital Regional do Sertão Central</b><small>Folha de batida de ponto — residência médica</small></div>
+      <div><b>Hospital Regional do Sertão Central</b><small id="hrscSubtitle">Folha de batida de ponto — residência médica</small></div>
     </div>
     <div id="residentePanel" class="resid-empty">
       <span class="ti ti-file-search"></span>
@@ -134,13 +148,17 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
         <div class="f-wrap"><label class="f">PIS <span class="frombadge">do arquivo</span></label><input id="h_pis" readonly></div>
         <div class="f-wrap"><label class="f">Período <span class="frombadge">do arquivo</span></label><input id="h_periodo" readonly></div>
       </div>
+      <div id="periodChips" style="display:none;margin-top:12px">
+        <p class="hint" style="margin:0 0 7px">O arquivo tem batidas de <b>mais de um mês</b>. Escolha qual mostrar:</p>
+        <div id="periodChipsList" style="display:flex;flex-wrap:wrap;gap:7px"></div>
+      </div>
       <details class="admin-more" id="adminMore">
-        <summary><span class="ti ti-pencil"></span> Completar dados da residência (programa, categoria)</summary>
+        <summary><span class="ti ti-pencil"></span> <span id="adminMoreSummaryTxt">Completar dados da residência (programa, categoria)</span></summary>
         <div class="grid" style="margin-top:12px">
-          <div class="f-wrap"><label class="f">Programa de residência</label><input id="h_prog" placeholder="ex.: CLÍNICA MÉDICA"></div>
+          <div class="f-wrap"><label class="f"><span id="progLabelTxt">Programa de residência</span></label><input id="h_prog" placeholder="ex.: CLÍNICA MÉDICA"></div>
           <div class="f-wrap"><label class="f">Categoria profissional</label><input id="h_cat" placeholder="ex.: MÉDICA"></div>
         </div>
-        <p class="hint" style="margin:9px 0 0">Não constam no arquivo de ponto. Ficam <b>salvos por residente</b>: da próxima vez que anexar o ponto dessa pessoa, já vêm preenchidos.</p>
+        <p class="hint" style="margin:9px 0 0"><span id="regHintTxt">Não constam no arquivo de ponto. Ficam <b>salvos por residente</b>: da próxima vez que anexar o ponto dessa pessoa, já vêm preenchidos.</span></p>
       </details>
     </div>
     <input type="hidden" id="h_mes"><input type="hidden" id="h_ano">
@@ -225,15 +243,69 @@ document.getElementById('apiKey').addEventListener('change',e=>saveLS('pontoai_k
 document.getElementById('econMode').checked=loadLS('pontoai_econ',true)!==false;
 document.getElementById('econMode').addEventListener('change',e=>saveLS('pontoai_econ',e.target.checked));
 
-/* registro por residente (dados administrativos que não vêm no ponto) */
+/* registro por residente/profissional (dados administrativos que não vêm no ponto) */
 ['h_mat','h_prog','h_cat'].forEach(id=>document.getElementById(id).addEventListener('change',saveRegistry));
 function saveRegistry(){
   const nome=(document.getElementById('h_nome').value||'').trim().toUpperCase(); if(!nome)return;
-  const reg=loadLS('pontoai_residentes',{});
+  const reg=loadLS(regKey(),{});
   reg[nome]={mat:val('h_mat'),prog:val('h_prog'),cat:val('h_cat')};
-  saveLS('pontoai_residentes',reg);
+  saveLS(regKey(),reg);
 }
 const val=id=>document.getElementById(id).value.trim();
+
+/* ============ abas de programa (Residência / Mais Especialistas) ============
+   Motor único e compartilhado — cada aba só troca as FONTES/GRADE/CAMPOS ativos
+   e o "registro por pessoa" fica em namespaces separados (mesmo nome de médico
+   não mistura dados administrativos entre os dois programas). */
+let PROGCTX='residencia';
+const CTXSTORE={};
+function regKey(){ return PROGCTX==='residencia' ? 'pontoai_residentes' : 'pontoai_especialistas'; }
+function snapshotFields(){
+  return {
+    nome:val('h_nome'), mat:val('h_mat'), pis:val('h_pis'), periodo:val('h_periodo'),
+    prog:val('h_prog'), cat:val('h_cat'), mes:val('h_mes'), ano:val('h_ano'),
+    obs:document.getElementById('obsGeral').value
+  };
+}
+function applyFields(f){
+  document.getElementById('h_nome').value=f&&f.nome||'';
+  document.getElementById('h_mat').value=f&&f.mat||'';
+  document.getElementById('h_pis').value=f&&f.pis||'';
+  document.getElementById('h_periodo').value=f&&f.periodo||'';
+  document.getElementById('h_prog').value=(f&&f.prog)||(PROGCTX==='especialistas'?'MAIS ESPECIALISTAS':'');
+  document.getElementById('h_cat').value=f&&f.cat||'';
+  document.getElementById('h_mes').value=f&&f.mes||'';
+  document.getElementById('h_ano').value=f&&f.ano||'';
+  document.getElementById('obsGeral').value=f&&f.obs||'';
+}
+function applyCtxLabels(){
+  const esp=PROGCTX==='especialistas';
+  document.getElementById('hrscSubtitle').textContent=esp?'Folha de batida de ponto — Programa Mais Especialistas':'Folha de batida de ponto — residência médica';
+  document.getElementById('progLabelTxt').textContent=esp?'Programa':'Programa de residência';
+  document.getElementById('adminMoreSummaryTxt').textContent=esp?'Completar dados do profissional (programa, categoria)':'Completar dados da residência (programa, categoria)';
+  document.getElementById('regHintTxt').innerHTML=esp?'Não constam no arquivo de ponto. Ficam <b>salvos por profissional</b>: da próxima vez que anexar o ponto dessa pessoa, já vêm preenchidos.':'Não constam no arquivo de ponto. Ficam <b>salvos por residente</b>: da próxima vez que anexar o ponto dessa pessoa, já vêm preenchidos.';
+  document.getElementById('h_prog').placeholder=esp?'MAIS ESPECIALISTAS':'ex.: CLÍNICA MÉDICA';
+  document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('active',b.dataset.ctx===PROGCTX));
+}
+function switchCtx(newCtx){
+  if(newCtx===PROGCTX)return;
+  CTXSTORE[PROGCTX]={sources:SOURCES,grid:GRID,fields:snapshotFields()};
+  PROGCTX=newCtx;
+  const saved=CTXSTORE[newCtx];
+  SOURCES=saved?saved.sources:[];
+  GRID=saved?saved.grid:[];
+  applyFields(saved?saved.fields:null);
+  applyCtxLabels();
+  renderFiles();
+  renderPeriodChips();
+  document.getElementById('genStatus').textContent='';
+  if(GRID.length){ renderSheet(); document.getElementById('sheetCard').style.display='block'; }
+  else{ document.getElementById('sheetCard').style.display='none'; }
+  const hasAny=!!(val('h_nome')||val('h_pis')||SOURCES.length);
+  document.getElementById('residentePanel').style.display=hasAny?'none':'flex';
+  document.getElementById('residenteData').style.display=hasAny?'block':'none';
+}
+document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>switchCtx(b.dataset.ctx)));
 
 /* ============ upload ============ */
 const drop=document.getElementById('drop'),fileInput=document.getElementById('fileInput');
@@ -270,25 +342,50 @@ function applyMeta(){
   // dados administrativos salvos por residente: só preenchem o que ainda estiver vazio
   // (não sobrescrevem a matrícula vinda do arquivo)
   if(nome){
-    const reg=loadLS('pontoai_residentes',{})[nome.trim().toUpperCase()];
+    const reg=loadLS(regKey(),{})[nome.trim().toUpperCase()];
     if(reg){
       if(reg.mat&&!val('h_mat'))document.getElementById('h_mat').value=reg.mat;
       if(reg.prog&&!val('h_prog'))document.getElementById('h_prog').value=reg.prog;
       if(reg.cat&&!val('h_cat'))document.getElementById('h_cat').value=reg.cat;
     }
   }
+  renderPeriodChips();
+  const todos=detectAllPeriods();
   const bits=[]; if(nome)bits.push(nome.split(' ')[0]); if(per)bits.push(MES_NOMES[per.mes]+'/'+per.ano);
-  if(bits.length)toast('Lido do arquivo: <b>'+esc(bits.join(' · '))+'</b>','ok');
+  if(bits.length)toast('Lido do arquivo: <b>'+esc(bits.join(' · '))+'</b>'+(todos.length>1?' <br><small>'+todos.length+' meses encontrados no arquivo — troque acima se precisar.</small>':''),'ok');
 }
 /* período dominante (MM/AAAA) entre as batidas anexadas */
 function detectPeriod(){
+  const all=detectAllPeriods();
+  if(!all.length)return null;
+  let best=all[0]; all.forEach(p=>{if(p.count>best.count)best=p;});
+  return {mes:best.mes,ano:best.ano};
+}
+/* TODOS os meses/anos presentes nas batidas anexadas (arquivo pode abranger vários) */
+function detectAllPeriods(){
   const tally={};
   SOURCES.forEach(s=>s.records.forEach(r=>{const my=r.date.slice(3);tally[my]=(tally[my]||0)+1;}));
-  let best=null,bestN=0;
-  Object.keys(tally).forEach(my=>{if(tally[my]>bestN){bestN=tally[my];best=my;}});
-  if(!best)return null;
-  const p=best.split('/');
-  return {mes:+p[0],ano:+p[1]};
+  return Object.keys(tally).map(my=>{const p=my.split('/');return {mes:+p[0],ano:+p[1],count:tally[my]};})
+    .sort((a,b)=>(a.ano-b.ano)||(a.mes-b.mes));
+}
+/* chips de período — só aparecem quando o arquivo abrange mais de um mês */
+function renderPeriodChips(){
+  const all=detectAllPeriods();
+  const box=document.getElementById('periodChips'), list=document.getElementById('periodChipsList');
+  if(all.length<2){ box.style.display='none'; list.innerHTML=''; return; }
+  const curMes=+document.getElementById('h_mes').value, curAno=+document.getElementById('h_ano').value;
+  list.innerHTML=all.map(p=>{
+    const active=(p.mes===curMes&&p.ano===curAno)?' active':'';
+    return '<button type="button" class="pchip'+active+'" data-mes="'+p.mes+'" data-ano="'+p.ano+'">'+MES_NOMES[p.mes]+'/'+p.ano+' <small>('+p.count+')</small></button>';
+  }).join('');
+  box.style.display='block';
+  list.querySelectorAll('.pchip').forEach(b=>b.addEventListener('click',()=>{
+    document.getElementById('h_mes').value=b.dataset.mes;
+    document.getElementById('h_ano').value=b.dataset.ano;
+    document.getElementById('h_periodo').value=MES_NOMES[+b.dataset.mes]+' '+b.dataset.ano;
+    renderPeriodChips();
+    if(GRID.length){ buildGrid(); renderSheet(); }   // já tinha gerado a folha: reconstrói pro mês escolhido
+  }));
 }
 
 function fileToDataURL(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f);});}
@@ -463,7 +560,7 @@ async function aiTreat(){
   const mes=+document.getElementById('h_mes').value, ano=+document.getElementById('h_ano').value;
   const compact=GRID.filter(g=>g.hasData||g.obs).map(g=>({dia:g.key,entrada:g.entrada,saida:g.saida,status:g.status,obs:g.obs}));
   const prompt=
-`Você trata folhas de ponto de residência médica. Mês ${pad2(mes)}/${ano}.
+`Você trata folhas de ponto de profissionais de saúde do HRSC (residência médica ou Programa Mais Especialistas). Mês ${pad2(mes)}/${ano}.
 Recebe: (1) uma consolidação automática por dia (1ª entrada / última saída extraídas de catraca/relógio) e, se houver, (2) FOTOS de uma folha de presença manual.
 Tarefas:
 - Se houver foto, leia-a e concilie POR DATA: extraia entrada/saída manuais e, principalmente, dias marcados como ATESTADO, FÉRIAS, FOLGA ou FALTA.
@@ -514,6 +611,8 @@ async function generate(){
       if(per){
         document.getElementById('h_mes').value=String(per.mes);
         document.getElementById('h_ano').value=String(per.ano);
+        document.getElementById('h_periodo').value=MES_NOMES[per.mes]+' '+per.ano;
+        renderPeriodChips();
         buildGrid();
         toast('O mês selecionado não tinha registros. Ajustei para <b>'+MES_NOMES[per.mes]+'/'+per.ano+'</b>.','ok');
       }
@@ -617,6 +716,7 @@ function buildSheetHTML(){
   const totalLine=`Carga horária total no mês: <b>${H}h${pad2(M)}</b> — ${dias} dias trabalhados.`;
   const obsText=(obsGeral?esc(obsGeral)+' &nbsp;·&nbsp; ':'')+totalLine;
   const logo='<img src="'+HRSC_LOGO+'" style="max-height:62px;max-width:150px">';
+  const progLabel=PROGCTX==='especialistas'?'PROGRAMA:':'PROGRAMA DE RESIDÊNCIA:';
   const fname=(g('h_nome')||'ponto').replace(/\s+/g,' ').trim()+' - '+meses[mes]+' '+ano;
   const html=
 `<div id="pdfDoc"><style>
@@ -642,7 +742,7 @@ function buildSheetHTML(){
   <td colspan="2" class="title">BATIDA DE PONTO</td></tr>
   <tr><td class="lb">NOME:</td><td>${esc(g('h_nome'))}</td></tr>
   <tr><td class="lb">MATRÍCULA:</td><td>${esc(g('h_mat'))}</td></tr>
-  <tr><td class="lb">PROGRAMA DE RESIDÊNCIA:</td><td>${esc(g('h_prog'))}</td></tr>
+  <tr><td class="lb">${progLabel}</td><td>${esc(g('h_prog'))}</td></tr>
   <tr><td class="lb">CATEGORIA PROFISSIONAL:</td><td>${esc(g('h_cat'))}</td></tr>
   <tr><td class="lb">PERÍODO:</td><td>${meses[mes]} ${ano}</td></tr>
 </table>
