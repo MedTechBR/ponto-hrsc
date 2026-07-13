@@ -58,6 +58,17 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--petrol);
 .stat{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px 16px;min-width:150px}
 .stat .k{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
 .stat .v{font-size:22px;font-weight:800;color:var(--petrol-dark);margin-top:2px}
+.weekly{margin-bottom:16px}
+.weekly-title{font-weight:700;font-size:13.5px;margin-bottom:8px;display:flex;align-items:center;gap:7px;color:var(--ink)}
+.weekly-title .ti{color:var(--petrol);font-size:17px}
+.wk-table{width:100%;border-collapse:collapse;font-size:13px;max-width:520px}
+.wk-table th,.wk-table td{border:1px solid var(--line-strong);padding:7px 11px;text-align:left}
+.wk-table th{background:var(--soft);color:var(--petrol-dark);font-weight:700;font-size:12px}
+.wk-table tr.abaixo td{background:#fef2f2}
+.wk-badge{font-weight:700;font-size:11px;padding:3px 10px;border-radius:20px;white-space:nowrap}
+.wk-badge.ok{background:#dcfce7;color:#166534}
+.wk-badge.abaixo{background:#fee2e2;color:#7f1d1d}
+.wk-badge.parcial{background:var(--bg);color:var(--muted)}
 .folha{width:100%;border-collapse:collapse;font-size:13px}
 .folha th,.folha td{border:1px solid var(--line-strong);padding:0;text-align:center}
 .folha thead th{background:var(--soft);color:var(--petrol-dark);font-weight:700;padding:9px 6px;font-size:12.5px}
@@ -199,6 +210,7 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
     <h2 class="noprint"><span class="ti ti-table"></span>Folha BATIDA DE PONTO</h2>
     <div class="warnbox noprint" id="warnBox" style="display:none"></div>
     <div class="summary noprint" id="summary"></div>
+    <div class="weekly noprint" id="weeklyBox" style="display:none"></div>
     <div style="overflow-x:auto">
       <table class="folha" id="folha"></table>
     </div>
@@ -226,6 +238,7 @@ const saveLS=(k,o)=>{try{localStorage.setItem(k,JSON.stringify(o));}catch(e){}};
 const pad2=n=>String(n).padStart(2,'0');
 const DOW=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const MES_NOMES=['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const HORAS_MIN_SEMANA_ESP=16;   // carga horária mínima semanal do Programa Mais Especialistas
 
 if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}
 
@@ -720,16 +733,65 @@ function recalc(){
     '<div class="stat"><div class="k">Média/dia</div><div class="v">'+(dias?Math.floor(totMin/dias/60)+'h'+pad2(Math.round(totMin/dias%60)):'—')+'</div></div>'+
     (atest?'<div class="stat"><div class="k">Atestado/afastam.</div><div class="v">'+atest+'</div></div>':'')+
     (pend?'<div class="stat"><div class="k">Dias incompletos</div><div class="v" style="color:var(--warn)">'+pend+'</div></div>':'');
+  const weeks=renderWeekly();
   // aviso
   const wb=document.getElementById('warnBox');
   const notes=GRID.filter(g=>g.obs).length;
-  if(pend||notes){
+  const semanasAbaixo=weeks?weeks.filter(w=>!w.parcial&&w.abaixo).length:0;
+  if(pend||notes||semanasAbaixo){
     wb.style.display='flex';
     wb.innerHTML='<span class="ti ti-alert-triangle"></span><div>'+
       (pend?'<b>'+pend+' dia(s) com batida incompleta</b> — sem par entrada/saída, não entram no total. ':'')+
+      (semanasAbaixo?'<b>'+semanasAbaixo+' semana(s) abaixo de '+HORAS_MIN_SEMANA_ESP+'h</b> (veja o quadro semanal abaixo). ':'')+
       (notes?notes+' dia(s) têm observação (ponto laranja na data). Revise antes de exportar.':'')+'</div>';
   }else{wb.style.display='none';}
   return totMin;
+}
+
+/* ============ carga horária semanal (Programa Mais Especialistas — mínimo 16h/semana) ============
+   Agrupa os dias da grade em semanas de segunda a domingo. Semanas na virada do mês
+   (que se estendem antes do dia 1 ou depois do último dia) ficam marcadas "parcial" —
+   não entram no aviso de "abaixo do mínimo" pra não alarmar por um recorte do calendário. */
+function computeWeeks(){
+  if(!GRID.length)return[];
+  const mes=+document.getElementById('h_mes').value, ano=+document.getElementById('h_ano').value;
+  const N=new Date(ano,mes,0).getDate();
+  const weeks={};
+  GRID.forEach(g=>{
+    const offset=(g.dow+6)%7;           // 0=segunda .. 6=domingo
+    const anchor=g.d-offset;             // "segunda" da semana desse dia
+    if(!weeks[anchor])weeks[anchor]={dias:[],totalMin:0};
+    weeks[anchor].dias.push(g.d);
+    if(!['ATESTADO','FERIAS','FOLGA','FALTA'].includes(g.status)){
+      const e=toMin(g.entrada),s=toMin(g.saida);
+      if(e!=null&&s!=null){ let dur=s-e; if(dur<0)dur+=24*60; weeks[anchor].totalMin+=dur; }
+    }
+  });
+  return Object.keys(weeks).map(Number).sort((a,b)=>a-b).map(anchor=>{
+    const w=weeks[anchor];
+    const diaMin=Math.min(...w.dias), diaMax=Math.max(...w.dias);
+    const parcial=(anchor<1)||((anchor+6)>N);
+    return {diaMin,diaMax,totalMin:w.totalMin,parcial,abaixo:w.totalMin<HORAS_MIN_SEMANA_ESP*60};
+  });
+}
+function renderWeekly(){
+  const box=document.getElementById('weeklyBox'); if(!box)return null;
+  if(PROGCTX!=='especialistas'||!GRID.length){ box.style.display='none'; box.innerHTML=''; return null; }
+  const mes=+document.getElementById('h_mes').value;
+  const weeks=computeWeeks();
+  if(!weeks.length){ box.style.display='none'; box.innerHTML=''; return weeks; }
+  const rows=weeks.map(w=>{
+    const H=Math.floor(w.totalMin/60), M=w.totalMin%60;
+    const situacao=w.parcial?'<span class="wk-badge parcial">Semana parcial</span>'
+      :w.abaixo?'<span class="wk-badge abaixo">Abaixo de '+HORAS_MIN_SEMANA_ESP+'h</span>'
+      :'<span class="wk-badge ok">OK</span>';
+    const range=w.diaMin===w.diaMax?pad2(w.diaMin)+'/'+pad2(mes):pad2(w.diaMin)+'/'+pad2(mes)+' – '+pad2(w.diaMax)+'/'+pad2(mes);
+    return '<tr class="'+(!w.parcial&&w.abaixo?'abaixo':'')+'"><td>'+range+'</td><td>'+H+'h'+pad2(M)+'</td><td>'+situacao+'</td></tr>';
+  }).join('');
+  box.innerHTML='<div class="weekly-title"><span class="ti ti-calendar-week"></span>Carga horária semanal <span class="frombadge">mínimo '+HORAS_MIN_SEMANA_ESP+'h/semana</span></div>'+
+    '<table class="wk-table"><thead><tr><th>Semana</th><th>Horas</th><th>Situação</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  box.style.display='block';
+  return weeks;
 }
 
 /* ============ exportar PDF (idêntico ao modelo HRSC, download direto) ============ */
@@ -755,6 +817,20 @@ function buildSheetHTML(){
   const logo='<img src="'+HRSC_LOGO+'" style="max-height:62px;max-width:150px">';
   const progLabel=PROGCTX==='especialistas'?'PROGRAMA:':'PROGRAMA DE RESIDÊNCIA:';
   const fname=(g('h_nome')||'ponto').replace(/\s+/g,' ').trim()+' - '+meses[mes]+' '+ano;
+  // carga horária semanal (só no Programa Mais Especialistas — mínimo 16h/semana)
+  let weeklyHtml='';
+  if(PROGCTX==='especialistas'){
+    const weeks=computeWeeks();
+    if(weeks.length){
+      const wrows=weeks.map(w=>{
+        const wH=Math.floor(w.totalMin/60), wM=w.totalMin%60;
+        const range=w.diaMin===w.diaMax?pad2(w.diaMin)+'/'+pad2(mes):pad2(w.diaMin)+'/'+pad2(mes)+'–'+pad2(w.diaMax)+'/'+pad2(mes);
+        const sit=w.parcial?'Semana parcial':(w.abaixo?'Abaixo de '+HORAS_MIN_SEMANA_ESP+'h':'OK');
+        return `<tr><td>${range}</td><td>${wH}h${pad2(wM)}</td><td>${sit}</td></tr>`;
+      }).join('');
+      weeklyHtml=`<table class="wktable"><thead><tr><th colspan="3">Carga horária semanal (mínimo ${HORAS_MIN_SEMANA_ESP}h/semana)</th></tr><tr><th>Semana</th><th>Horas</th><th>Situação</th></tr></thead><tbody>${wrows}</tbody></table>`;
+    }
+  }
   const html=
 `<div id="pdfDoc"><style>
  #pdfDoc{font-family:'Inter',Arial,sans-serif;color:#111;font-size:11px}
@@ -773,6 +849,9 @@ function buildSheetHTML(){
  #pdfDoc .ptable .oc{text-align:right;color:#222;font-size:10px}
  #pdfDoc .obsbox{border:1px solid #333;border-top:none;padding:8px;font-size:10.5px;min-height:36px}
  #pdfDoc .foot{margin-top:10px;text-align:center;font-size:9.5px;color:#333}
+ #pdfDoc .wktable{margin-top:10px;max-width:280px}
+ #pdfDoc .wktable th,#pdfDoc .wktable td{border:1px solid #333;padding:4px 8px;font-size:10px;text-align:left}
+ #pdfDoc .wktable thead tr:first-child th{background:#e2e8f0;text-align:center;font-size:10.5px}
 </style>
 <table class="hd"><tr>
   <td class="logo" rowspan="6">${logo}</td>
@@ -785,6 +864,7 @@ function buildSheetHTML(){
 </table>
 <table class="ptable"><thead><tr><th class="cData">Data</th><th class="cH">Entrada</th><th class="cH">Saída</th><th class="cPis">PIS: ${esc(g('h_pis'))}</th></tr></thead>
 <tbody>${rows}</tbody></table>
+${weeklyHtml}
 <div class="obsbox"><b>Observações:</b> ${obsText}</div>
 <div class="foot">${HRSC_END}</div></div>`;
   return {html,fname};
