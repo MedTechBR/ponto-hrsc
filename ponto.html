@@ -74,6 +74,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--petrol);
 .obs-area textarea{min-height:60px;resize:vertical}
 .warnbox{background:var(--warn-soft);border:1px solid #fcd34d;border-radius:10px;padding:11px 14px;font-size:13px;color:#7c2d12;display:flex;gap:9px;align-items:flex-start;margin-bottom:14px}
 .warnbox .ti{font-size:18px;flex:0 0 auto;margin-top:1px}
+.warnbox.danger{background:#fee2e2;border-color:#fca5a5;color:#7f1d1d}
 /* ---- abas de programa ---- */
 .tabbar{display:flex;gap:8px;margin-bottom:16px}
 .tabbtn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-strong);background:#fff;color:var(--muted);font-weight:700;font-size:13.5px;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:inherit}
@@ -190,6 +191,7 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
       <button class="btn btn-primary" id="genBtn"><span class="ti ti-wand"></span>Gerar folha de ponto</button>
       <span class="pill" id="genStatus"></span>
     </div>
+    <div class="warnbox noprint" id="iaWarnBox" style="display:none;margin-top:14px"></div>
   </div>
 
   <!-- 3. Folha resultante -->
@@ -299,6 +301,7 @@ function switchCtx(newCtx){
   renderFiles();
   renderPeriodChips();
   document.getElementById('genStatus').textContent='';
+  clearIaWarn();
   if(GRID.length){ renderSheet(); document.getElementById('sheetCard').style.display='block'; }
   else{ document.getElementById('sheetCard').style.display='none'; }
   const hasAny=!!(val('h_nome')||val('h_pis')||SOURCES.length);
@@ -553,7 +556,7 @@ function buildGrid(){
 /* ============ IA (BYOK) — lê a foto da folha manual ============ */
 async function aiTreat(){
   const imgs=SOURCES.filter(s=>s.kind==='image');
-  if(!imgs.length) return;                                   // IA só entra para ler a foto manual
+  if(!imgs.length) return null;                              // IA só entra para ler a foto manual
   const key=document.getElementById('apiKey').value.trim();
   if(!key) throw new Error('Foto anexada, mas sem chave Gemini — adicione a chave para ler a folha manual.');
 
@@ -561,15 +564,17 @@ async function aiTreat(){
   const compact=GRID.filter(g=>g.hasData||g.obs).map(g=>({dia:g.key,entrada:g.entrada,saida:g.saida,status:g.status,obs:g.obs}));
   const prompt=
 `Você trata folhas de ponto de profissionais de saúde do HRSC (residência médica ou Programa Mais Especialistas). Mês ${pad2(mes)}/${ano}.
-Recebe: (1) uma consolidação automática por dia (1ª entrada / última saída extraídas de catraca/relógio) e, se houver, (2) FOTOS de uma folha de presença manual.
+Recebe: (1) uma consolidação automática por dia (1ª entrada / última saída extraídas de catraca/relógio) e, se houver, (2) FOTOS de uma folha de presença MANUAL preenchida à mão (ex.: formulário "Frequência da Residência Multi" — cabeçalho com RESIDENTE/PROGRAMA/RODÍZIO/MÊS-ANO, seguido de uma tabela com os dias do mês em DOIS BLOCOS lado a lado: bloco esquerdo = dias 1 a 16, bloco direito = dias 17 a 31, cada um com colunas DIA / ENTRADA / SAÍDA). Preste muita atenção para não confundir os dois blocos nem trocar a linha/dia ao ler a letra manuscrita.
+A folha manual existe justamente para cobrir dias em que a catraca falhou ou não foi usada — portanto é NORMAL e ESPERADO que um dia tenha anotação manual mesmo sem NENHUM dado na consolidação automática. Extraia TODO dia com qualquer marcação manuscrita (entrada e/ou saída, mesmo que só um dos dois esteja preenchido), não apenas os dias que já aparecem na consolidação automática abaixo.
 Tarefas:
-- Se houver foto, leia-a e concilie POR DATA: extraia entrada/saída manuais e, principalmente, dias marcados como ATESTADO, FÉRIAS, FOLGA ou FALTA.
+- Leia a foto e concilie POR DATA (dia do mês + o mês/ano informado acima): extraia entrada/saída manuscritas de cada dia preenchido. Quando a folha manual e a consolidação automática divergirem para o mesmo dia, a folha MANUAL tem prioridade (foi conferida/assinada pelo residente e pelo supervisor).
+- Também extraia dias marcados como ATESTADO, FÉRIAS, FOLGA ou FALTA, se houver.
 - Fins de semana (sábado e domingo) sem batida são DESCANSO/FOLGA — o app já mostra SÁB/DOM. NUNCA marque sábado/domingo como FALTA (o residente pode vir, mas não faltar). Só use FALTA em dia útil com ausência explícita na folha manual.
-- Batida única no dia (só um horário): interprete pelo horário — se for de MANHÃ (antes das 12h) é ENTRADA (deixe saída null); se for à TARDE/NOITE (12h ou depois) é SAÍDA (deixe entrada null). A folha manual, se houver, tem prioridade.
-- Para cada dia relevante, gere uma observação curta em português quando houver: plantão que vira a noite, batida única/incompleta, divergência entre a foto e o automático, ou status especial.
+- Batida única no dia (só um horário, seja na foto ou na automática): interprete pelo horário — se for de MANHÃ (antes das 12h) é ENTRADA (deixe saída null); se for à TARDE/NOITE (12h ou depois) é SAÍDA (deixe entrada null).
+- Para cada dia que você alterar/confirmar, gere uma observação curta em português quando fizer sentido (ex.: "Conforme frequência manual.", plantão que vira a noite, batida única/incompleta, divergência entre a foto e o automático, status especial).
 Responda SOMENTE um JSON válido, sem texto fora dele, no formato:
 {"dias":[{"dia":"DD/MM/AAAA","entrada":"HH:MM"|null,"saida":"HH:MM"|null,"status":"OK|ATESTADO|FERIAS|FOLGA|FALTA|PLANTAO_NOTURNO|INCOMPLETO","obs":"..."}]}
-Só inclua dias com alguma informação a acrescentar/corrigir. Consolidação automática:
+Inclua TODOS os dias com QUALQUER marcação na folha manual (mesmo que coincida com a automática) e todos os dias em que tiver algo a corrigir. Consolidação automática:
 ${JSON.stringify(compact)}`;
 
   const parts=[{text:prompt}];
@@ -583,26 +588,47 @@ ${JSON.stringify(compact)}`;
   const data=await res.json();
   const txt=(((data.candidates||[])[0]||{}).content||{}).parts?.map(p=>p.text).join('')||'';
   let parsed; try{ parsed=JSON.parse(txt); }catch(e){ const m=txt.match(/\{[\s\S]*\}/); parsed=m?JSON.parse(m[0]):{dias:[]}; }
-  const map={}; (parsed.dias||[]).forEach(x=>map[normDate(x.dia)]=x);
+  const diasIA=parsed.dias||[];
+  const map={}; diasIA.forEach(x=>map[normDate(x.dia)]=x);
+  const NOWORK=['ATESTADO','FERIAS','FOLGA','FALTA'];
+  let alterados=0;
   GRID.forEach(g=>{
     const x=map[g.key]; if(!x)return;
+    alterados++;
     let st=x.status;
     // fim de semana nunca é FALTA — ausência no sábado/domingo é folga/descanso
-    if(g.isWknd && st==='FALTA'){ st=g.hasData?'OK':'FDS'; x.obs=''; }
-    if(st && st!=='OK') g.status=st;
-    if(['ATESTADO','FERIAS','FOLGA','FALTA'].includes(g.status)){g.entrada='';g.saida='';}
-    else if(g.status==='FDS'){ /* fim de semana sem trabalho: mantém SÁB/DOM, sem horário */ }
-    else{ if(x.entrada)g.entrada=x.entrada.slice(0,5); if(x.saida)g.saida=x.saida.slice(0,5); }
+    if(g.isWknd && st==='FALTA') st=null;
+    if(x.entrada||x.saida){
+      // a folha manual trouxe horário nesse dia → deixa de ser "sem dado"/"fim de semana livre"
+      // (cobre o caso de fim de semana efetivamente trabalhado, que só está na folha manual).
+      let newSt=NOWORK.includes(st)?st:(st||'OK');
+      if(newSt==='OK'&&!(x.entrada&&x.saida))newSt='INCOMPLETO';   // só 1 lado veio → incompleto, mesma regra do motor
+      g.status=newSt;
+      g.hasData=true;
+      if(x.entrada)g.entrada=x.entrada.slice(0,5);
+      if(x.saida)g.saida=x.saida.slice(0,5);
+    }else if(NOWORK.includes(st)){
+      g.status=st; g.entrada=''; g.saida='';
+    }
     if(x.obs)g.obs=x.obs;
   });
+  return {count:alterados, totalIA:diasIA.length};
 }
 
 /* ============ gerar ============ */
 document.getElementById('genBtn').addEventListener('click',generate);
+function showIaWarn(msg,danger){
+  const b=document.getElementById('iaWarnBox'); if(!b)return;
+  b.className='warnbox noprint'+(danger?' danger':'');
+  b.innerHTML='<span class="ti ti-'+(danger?'alert-triangle':'info-circle')+'"></span><div>'+msg+'</div>';
+  b.style.display='flex';
+}
+function clearIaWarn(){ const b=document.getElementById('iaWarnBox'); if(b){b.style.display='none';b.innerHTML='';} }
+
 async function generate(){
   if(!SOURCES.length){ toast('Anexe pelo menos uma fonte de ponto.','err'); return; }
   const btn=document.getElementById('genBtn'), st=document.getElementById('genStatus');
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Processando...'; st.textContent='';
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Processando...'; st.textContent=''; clearIaWarn();
   try{
     buildGrid();
     // salvaguarda: mês selecionado não bate com os dados → corrige para o período detectado
@@ -620,8 +646,19 @@ async function generate(){
     st.innerHTML='<span class="ti ti-check"></span>Consolidação pronta';
     if(SOURCES.some(s=>s.kind==='image')){
       st.innerHTML='<span class="spin" style="border-top-color:#2563eb"></span>Lendo a folha manual com IA...';
-      try{ await aiTreat(); st.innerHTML='<span class="ti ti-check"></span>Folha manual lida pela IA'; }
-      catch(e){ console.error(e); toast('IA falhou (folha gerada só com o motor): '+esc(e.message),'err'); st.innerHTML='<span class="ti ti-alert-triangle"></span>Sem IA'; }
+      try{
+        const r=await aiTreat();
+        if(r&&r.count>0){
+          st.innerHTML='<span class="ti ti-check"></span>'+r.count+' dia(s) da folha manual conciliados';
+        }else{
+          st.innerHTML='<span class="ti ti-alert-triangle"></span>IA não achou dias na foto';
+          showIaWarn('A IA leu a foto, mas <b>não identificou nenhum dia</b> para conciliar com a frequência manual. Confira se a foto está nítida, bem enquadrada (cabeçalho + tabela completos, sem cortar) e com boa luz, e gere de novo. A folha abaixo está só com os dados automáticos (catraca/planilha).');
+        }
+      }catch(e){
+        console.error(e);
+        st.innerHTML='<span class="ti ti-alert-triangle"></span>Sem IA';
+        showIaWarn('<b>A leitura da foto falhou:</b> '+esc(e.message)+'. A folha foi gerada <b>só com o motor automático</b> — os dados da frequência manual NÃO entraram. '+(document.getElementById('apiKey').value.trim()?'Tente gerar de novo.':'Cole a chave Gemini no campo acima e gere de novo.'),true);
+      }
     }
     renderSheet();
     document.getElementById('sheetCard').style.display='block';
