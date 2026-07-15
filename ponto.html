@@ -411,9 +411,22 @@ async function ingest(f){
   const ext=(f.name.split('.').pop()||'').toLowerCase();
   const isImg=/^image\//.test(f.type)||['jpg','jpeg','png','webp','heic'].includes(ext);
   if(ext==='pdf'||f.type==='application/pdf'){
-    const {records,meta}=await parsePDF(await fileToArrayBuffer(f));
-    SOURCES.push({name:f.name,kind:'pdf',records,meta});
-    toast(records.length+' batidas lidas do PDF','ok');
+    const buf=await fileToArrayBuffer(f);
+    // parsePDF (via pdf.js) TRANSFERE/detacha o ArrayBuffer original — passa uma cópia
+    // e guarda o "buf" intacto pro fallback de imagem (scan sem texto) abaixo.
+    const {records,meta}=await parsePDF(buf.slice(0));
+    if(records.length){
+      SOURCES.push({name:f.name,kind:'pdf',records,meta});
+      toast(records.length+' batidas lidas do PDF','ok');
+    }else{
+      // PDF sem NENHUMA batida de texto = quase sempre uma foto/scan salvo como PDF
+      // (ex.: folha manual fotografada e exportada em "Salvar como PDF"). Renderiza a
+      // página como imagem e trata como foto — assim a IA consegue ler mesmo assim.
+      const dataUrl=await pdfPageToImage(buf,1,2.2);
+      const b64=dataUrl.split(',')[1];
+      SOURCES.push({name:f.name,kind:'image',records:[],image:{mime:'image/jpeg',b64,dataUrl},fromPdf:true});
+      toast('PDF sem texto — tratado como <b>foto</b> da folha manual (a IA vai ler ao gerar).','ok');
+    }
   }else if(['xls','xlsx','csv'].includes(ext)){
     const {records,meta}=await parseSheet(await fileToArrayBuffer(f),f.name);
     SOURCES.push({name:f.name,kind:'sheet',records,meta});
@@ -426,6 +439,20 @@ async function ingest(f){
   }else{
     throw new Error('formato não suportado');
   }
+}
+
+/* renderiza a 1ª página de um PDF como imagem (JPEG dataURL) — usado quando o PDF
+   não tem texto extraível (foto/scan salvo como PDF, ex.: folha manual) */
+async function pdfPageToImage(buf,pageNum,scale){
+  const pdf=await pdfjsLib.getDocument({data:buf.slice(0)}).promise;
+  const page=await pdf.getPage(pageNum||1);
+  const viewport=page.getViewport({scale:scale||2});
+  const canvas=document.createElement('canvas');
+  canvas.width=viewport.width; canvas.height=viewport.height;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  await page.render({canvasContext:ctx,viewport}).promise;
+  return canvas.toDataURL('image/jpeg',0.92);
 }
 
 /* ============ parser PDF (catraca) ============ */
@@ -511,7 +538,7 @@ function renderFiles(){
     const icon=s.kind==='pdf'?'ti-file-type-pdf':s.kind==='sheet'?'ti-file-spreadsheet':'ti-photo';
     const tag=s.kind==='pdf'?'<span class="tag">PDF · '+s.records.length+' batidas</span>':
              s.kind==='sheet'?'<span class="tag sheet">Planilha · '+s.records.length+' batidas</span>':
-             '<span class="tag img">Foto manual</span>';
+             '<span class="tag img">Foto manual'+(s.fromPdf?' (extraída do PDF)':'')+'</span>';
     const li=document.createElement('li');
     li.innerHTML='<span class="ti '+icon+'"></span><div class="meta"><b>'+esc(s.name)+'</b><span>'+tag+'</span></div>'+
       '<button class="rm ti ti-x" title="remover" onclick="removeSrc('+i+')"></button>';
@@ -614,12 +641,15 @@ ${JSON.stringify(compact)}`;
     if(x.entrada||x.saida){
       // a folha manual trouxe horário nesse dia → deixa de ser "sem dado"/"fim de semana livre"
       // (cobre o caso de fim de semana efetivamente trabalhado, que só está na folha manual).
-      let newSt=NOWORK.includes(st)?st:(st||'OK');
-      if(newSt==='OK'&&!(x.entrada&&x.saida))newSt='INCOMPLETO';   // só 1 lado veio → incompleto, mesma regra do motor
-      g.status=newSt;
-      g.hasData=true;
       if(x.entrada)g.entrada=x.entrada.slice(0,5);
       if(x.saida)g.saida=x.saida.slice(0,5);
+      g.hasData=true;
+      // INCOMPLETO/OK usa os valores FINAIS já mesclados (entrada+saida), não só o que a IA
+      // repetiu nesta resposta — ex.: automático já tinha a saída e a foto só trouxe a entrada:
+      // o dia fica completo, não deve ficar marcado incompleto por a IA não ter repetido a saída.
+      let newSt=NOWORK.includes(st)?st:(st||'OK');
+      if(newSt==='OK'&&!(g.entrada&&g.saida))newSt='INCOMPLETO';
+      g.status=newSt;
     }else if(NOWORK.includes(st)){
       g.status=st; g.entrada=''; g.saida='';
     }
