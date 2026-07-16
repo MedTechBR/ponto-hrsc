@@ -133,7 +133,7 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
 </head>
 <body>
 <header class="top noprint">
-  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC · <span id="appVer">v29</span></small></div></div>
+  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC · <span id="appVer">v30</span></small></div></div>
 </header>
 
 <div class="wrap">
@@ -500,19 +500,30 @@ async function parseSheet(buf,name){
     let cNome=-1,cPis=-1,cMat=-1;
     for(const r of rows){
       let found=false;
-      r.forEach((c,ci)=>{const u=String(c).trim().toUpperCase(); if(u==='NOME'){cNome=ci;found=true;} if(u==='PIS')cPis=ci; if(u==='MATRICULA'||u==='MATRÍCULA')cMat=ci;});
+      r.forEach((c,ci)=>{const u=String(c).trim().toUpperCase(); if(u==='NOME'||u==='USUARIO'||u==='USUÁRIO'){cNome=ci;found=true;} if(u==='PIS')cPis=ci; if(u==='MATRICULA'||u==='MATRÍCULA')cMat=ci;});
       if(found)break;
     }
     rows.forEach(r=>{
-      let date=null,time=null;
+      // (1) captura TODAS as células com data+hora JUNTAS na mesma célula.
+      // Cobre o formato com colunas "entrada" e "saída" separadas (cada uma "DD/MM/AAAA HH:MM:SS")
+      // — antes o parser lia só o 1º par da linha e ignorava a saída.
+      let achouDateTime=false;
       for(const cell of r){
         const s=String(cell).trim(); if(!s)continue;
-        if(!date){ const md=s.match(reDate); if(md){date=normDate(md[1]);continue;} }
-        if(!time){ const mt=s.match(reTime); if(mt && s.length<=9){time=normTime(mt[1]);continue;} }
-        if(!date||!time){ const both=s.match(reDateTime); if(both){date=date||normDate(both[1]);time=time||normTime(both[2]);} }
+        const m=s.match(reDateTime);
+        if(m){ recs.push({date:normDate(m[1]),time:normTime(m[2]),dir:null}); achouDateTime=true; }
       }
-      if(date&&time)recs.push({date,time,dir:null});
-      if(!nome&&cNome>=0&&String(r[cNome]||'').trim() && !/^NOME$/i.test(String(r[cNome]).trim()))nome=String(r[cNome]).trim();
+      // (2) fallback: uma célula só-data + uma célula só-hora na linha (formato DIA/HORARIO, 1 batida/linha)
+      if(!achouDateTime){
+        let date=null,time=null;
+        for(const cell of r){
+          const s=String(cell).trim(); if(!s)continue;
+          if(!date){ const md=s.match(reDate); if(md){date=normDate(md[1]);continue;} }
+          if(!time){ const mt=s.match(reTime); if(mt && s.length<=9){time=normTime(mt[1]);continue;} }
+        }
+        if(date&&time)recs.push({date,time,dir:null});
+      }
+      if(!nome&&cNome>=0&&String(r[cNome]||'').trim() && !/^(NOME|USU[AÁ]RIO)$/i.test(String(r[cNome]).trim()))nome=String(r[cNome]).trim();
       if(!pis&&cPis>=0&&String(r[cPis]||'').trim() && !/^PIS$/i.test(String(r[cPis]).trim()))pis=formatPIS(r[cPis]);
       if(!mat&&cMat>=0&&String(r[cMat]||'').trim() && !/^MATR/i.test(String(r[cMat]).trim()))mat=String(r[cMat]).trim();
     });
