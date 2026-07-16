@@ -133,7 +133,7 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
 </head>
 <body>
 <header class="top noprint">
-  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC · <span id="appVer">v30</span></small></div></div>
+  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC · <span id="appVer">v31</span></small></div></div>
 </header>
 
 <div class="wrap">
@@ -615,14 +615,14 @@ async function aiTreat(){
   const compact=GRID.filter(g=>g.hasData||g.obs).map(g=>({dia:g.key,entrada:g.entrada,saida:g.saida,status:g.status,obs:g.obs}));
   const prompt=
 `Você trata folhas de ponto de profissionais de saúde do HRSC (residência médica ou Programa Mais Especialistas). Mês ${pad2(mes)}/${ano}.
-Recebe: (1) uma consolidação automática por dia (1ª entrada / última saída extraídas de catraca/relógio) e, se houver, (2) uma FOTO ou PDF ESCANEADO de uma folha de presença MANUAL preenchida à mão (ex.: formulário "Frequência da Residência Multi" — cabeçalho com RESIDENTE/PROGRAMA/RODÍZIO/MÊS-ANO, seguido de uma tabela com os dias do mês em DOIS BLOCOS lado a lado: bloco esquerdo = dias 1 a 16, bloco direito = dias 17 a 31, cada um com colunas DIA / ENTRADA / SAÍDA). Preste muita atenção para não confundir os dois blocos nem trocar a linha/dia ao ler a letra manuscrita.
-A folha manual existe justamente para cobrir dias em que a catraca falhou ou não foi usada — portanto é NORMAL e ESPERADO que um dia tenha anotação manual mesmo sem NENHUM dado na consolidação automática. Extraia TODO dia com qualquer marcação manuscrita (entrada e/ou saída, mesmo que só um dos dois esteja preenchido), não apenas os dias que já aparecem na consolidação automática abaixo.
+Recebe: (1) uma consolidação automática por dia (1ª entrada / última saída extraídas de catraca/relógio) e, se houver, (2) uma FOTO ou PDF ESCANEADO de uma folha de presença MANUAL preenchida à mão. Cabeçalho: RESIDENTE / PROGRAMA / RODÍZIO / MÊS-ANO. A tabela vem em DOIS BLOCOS lado a lado: o bloco ESQUERDO tem os dias 1 a 16 e o bloco DIREITO tem os dias 17 a 31; o número do DIA é a 1ª coluna de cada bloco. As colunas de HORÁRIO variam conforme o formulário — pode ter só "ENTRADA / SAÍDA", ou várias ("ENTRADA / SAÍDA INTERVALO / RETORNO INTERVALO / SAÍDA"). Frequentemente só algumas ficam preenchidas, e as pessoas às vezes escrevem o horário de saída numa coluna "errada" (ex.: escrevem a saída na coluna "SAÍDA INTERVALO").
+REGRA-CHAVE para ler cada dia: junte TODOS os horários manuscritos daquele dia (em QUALQUER coluna do bloco) e ordene por horário. O MENOR (mais cedo) é a ENTRADA; o MAIOR (mais tarde) é a SAÍDA. Se o dia tiver só UM horário manuscrito: se for de MANHÃ (antes das 12h) é ENTRADA (saída null); se for à TARDE/NOITE (12h ou depois) é SAÍDA (entrada null).
+A folha manual existe justamente para cobrir dias em que a catraca falhou — é NORMAL e ESPERADO um dia ter anotação manual mesmo SEM nada na consolidação automática. Extraia TODO dia que tenha QUALQUER horário manuscrito, mesmo que a automática não tenha esse dia. NÃO confunda os dois blocos nem troque o número do dia ao ler a letra à mão.
 Tarefas:
-- Leia a foto e concilie POR DATA (dia do mês + o mês/ano informado acima): extraia entrada/saída manuscritas de cada dia preenchido. Quando a folha manual e a consolidação automática divergirem para o mesmo dia, a folha MANUAL tem prioridade (foi conferida/assinada pelo residente e pelo supervisor).
+- Concilie POR DATA (número do dia do bloco + o mês/ano do cabeçalho). Onde a folha manual e a automática divergirem, a MANUAL tem prioridade. Se a automática já tem UM lado do dia (ex.: só a saída) e a manual traz o OUTRO (ex.: só a entrada), COMPLETE o dia com os dois (retorne o lado que você leu na foto; o app mantém o lado que já existe).
 - Também extraia dias marcados como ATESTADO, FÉRIAS, FOLGA ou FALTA, se houver.
-- Fins de semana (sábado e domingo) sem batida são DESCANSO/FOLGA — o app já mostra SÁB/DOM. NUNCA marque sábado/domingo como FALTA (o residente pode vir, mas não faltar). Só use FALTA em dia útil com ausência explícita na folha manual.
-- Batida única no dia (só um horário, seja na foto ou na automática): interprete pelo horário — se for de MANHÃ (antes das 12h) é ENTRADA (deixe saída null); se for à TARDE/NOITE (12h ou depois) é SAÍDA (deixe entrada null).
-- Para cada dia que você alterar/confirmar, gere uma observação curta em português quando fizer sentido (ex.: "Conforme frequência manual.", plantão que vira a noite, batida única/incompleta, divergência entre a foto e o automático, status especial).
+- Fins de semana (sábado e domingo) sem batida são DESCANSO/FOLGA — NUNCA marque sábado/domingo como FALTA. Só use FALTA em dia útil com ausência explícita na folha manual.
+- Para cada dia que você extrair/alterar, gere uma observação curta (ex.: "Conforme frequência manual.").
 Responda SOMENTE um JSON válido, sem texto fora dele, no formato:
 {"dias":[{"dia":"DD/MM/AAAA","entrada":"HH:MM"|null,"saida":"HH:MM"|null,"status":"OK|ATESTADO|FERIAS|FOLGA|FALTA|PLANTAO_NOTURNO|INCOMPLETO","obs":"..."}]}
 Inclua TODOS os dias com QUALQUER marcação na folha manual (mesmo que coincida com a automática) e todos os dias em que tiver algo a corrigir. Consolidação automática:
