@@ -624,7 +624,18 @@ ${JSON.stringify(compact)}`;
   const url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(key);
   const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:genCfg})});
-  if(!res.ok){ const t=await res.text(); throw new Error('Gemini '+res.status+': '+t.slice(0,160)); }
+  if(!res.ok){
+    const t=await res.text();
+    if(res.status===429){
+      const semCredito=/credit|prepay|depleted|billing|quota exceeded|exceeded your current quota/i.test(t);
+      const e=new Error(semCredito
+        ? 'Sua chave Gemini está SEM CRÉDITOS/COTA (erro 429). Use uma chave do plano GRATUITO (gere uma nova chave num projeto sem faturamento em aistudio.google.com/apikey) ou adicione créditos na conta atual.'
+        : 'Limite de uso da chave Gemini atingido no momento (429). Aguarde ~1 min e gere de novo, ou use outra chave.');
+      e.quota=true; throw e;
+    }
+    if(res.status===400 && /API key not valid|API_KEY_INVALID/i.test(t)) throw new Error('Chave Gemini inválida — confira se colou a chave correta (começa com "AIza...").');
+    throw new Error('Gemini '+res.status+': '+t.slice(0,160));
+  }
   const data=await res.json();
   const txt=(((data.candidates||[])[0]||{}).content||{}).parts?.map(p=>p.text).join('')||'';
   let parsed; try{ parsed=JSON.parse(txt); }catch(e){ const m=txt.match(/\{[\s\S]*\}/); parsed=m?JSON.parse(m[0]):{dias:[]}; }
