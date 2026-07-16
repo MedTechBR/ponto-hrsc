@@ -80,7 +80,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--petrol);
 .folha td.obscol{min-width:210px;text-align:left}
 .folha td.obscol .cell{text-align:left;font-weight:500;font-size:12px;color:var(--muted)}
 .folha tr.hasnote td.dcol::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);margin-left:5px;vertical-align:middle}
-.stsel{border:none;background:transparent;font-weight:700;font-size:12px;color:var(--muted);text-align:center;cursor:pointer;padding:8px 2px}
+.stsel{width:100%;border:none;background:transparent;font-weight:700;font-size:12px;color:var(--muted);text-align:center;cursor:pointer;padding:8px 2px;font-family:inherit;text-transform:uppercase}
+.stsel:focus{outline:2px solid var(--petrol);outline-offset:-2px;background:#fff;cursor:text;color:var(--ink)}
 .obs-area{margin-top:16px}
 .obs-area textarea{min-height:60px;resize:vertical}
 .warnbox{background:var(--warn-soft);border:1px solid #fcd34d;border-radius:10px;padding:11px 14px;font-size:13px;color:#7c2d12;display:flex;gap:9px;align-items:flex-start;margin-bottom:14px}
@@ -133,7 +134,7 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
 </head>
 <body>
 <header class="top noprint">
-  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC · <span id="appVer">v31</span></small></div></div>
+  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC · <span id="appVer">v32</span></small></div></div>
 </header>
 
 <div class="wrap">
@@ -211,6 +212,11 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
     <div class="warnbox noprint" id="warnBox" style="display:none"></div>
     <div class="summary noprint" id="summary"></div>
     <div class="weekly noprint" id="weeklyBox" style="display:none"></div>
+    <datalist id="statusOpts">
+      <option value="ATESTADO"></option><option value="FÉRIAS"></option><option value="FOLGA"></option>
+      <option value="FALTA"></option><option value="PLANTÃO"></option><option value="ABONO"></option>
+      <option value="LICENÇA"></option><option value="COMPENSAÇÃO"></option><option value="RECESSO"></option>
+    </datalist>
     <div style="overflow-x:auto">
       <table class="folha" id="folha"></table>
     </div>
@@ -232,6 +238,10 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
 <script>
 /* ============ utilitários (MTUI enxuto) ============ */
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+// dia de AFASTAMENTO (não conta no total, zera os horários): os 4 status canônicos +
+// qualquer status DIGITADO à mão que contenha uma palavra de ausência (licença, abono...).
+const AFASTA_RE=/ATESTAD|F[ÉE]RIAS|FOLGA|FALTA|LICEN[ÇC]A|ABONO|RECESSO|AFASTAMENT/i;
+function isAfastamento(s){ return !!s && AFASTA_RE.test(String(s)); }
 function toast(msg,type){const el=document.createElement('div');el.className='toast '+(type||'');el.innerHTML=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),3000);}
 const loadLS=(k,f)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?f:v;}catch(e){return f;}};
 const saveLS=(k,o)=>{try{localStorage.setItem(k,JSON.stringify(o));}catch(e){}};
@@ -652,7 +662,6 @@ ${JSON.stringify(compact)}`;
   let parsed; try{ parsed=JSON.parse(txt); }catch(e){ const m=txt.match(/\{[\s\S]*\}/); parsed=m?JSON.parse(m[0]):{dias:[]}; }
   const diasIA=parsed.dias||[];
   const map={}; diasIA.forEach(x=>map[normDate(x.dia)]=x);
-  const NOWORK=['ATESTADO','FERIAS','FOLGA','FALTA'];
   let alterados=0;
   GRID.forEach(g=>{
     const x=map[g.key]; if(!x)return;
@@ -669,10 +678,10 @@ ${JSON.stringify(compact)}`;
       // INCOMPLETO/OK usa os valores FINAIS já mesclados (entrada+saida), não só o que a IA
       // repetiu nesta resposta — ex.: automático já tinha a saída e a foto só trouxe a entrada:
       // o dia fica completo, não deve ficar marcado incompleto por a IA não ter repetido a saída.
-      let newSt=NOWORK.includes(st)?st:(st||'OK');
+      let newSt=isAfastamento(st)?st:(st||'OK');
       if(newSt==='OK'&&!(g.entrada&&g.saida))newSt='INCOMPLETO';
       g.status=newSt;
-    }else if(NOWORK.includes(st)){
+    }else if(isAfastamento(st)){
       g.status=st; g.entrada=''; g.saida='';
     }
     if(x.obs)g.obs=x.obs;
@@ -734,7 +743,19 @@ async function generate(){
 
 /* ============ render folha ============ */
 const STATUSES=['OK','ATESTADO','FERIAS','FOLGA','FALTA','PLANTAO_NOTURNO','INCOMPLETO','FDS'];
-function labelStatus(s){return {OK:'',ATESTADO:'ATESTADO',FERIAS:'FÉRIAS',FOLGA:'FOLGA',FALTA:'FALTA',PLANTAO_NOTURNO:'PLANTÃO',INCOMPLETO:'—',FDS:''}[s]??'';}
+const ST_KNOWN={OK:'',ATESTADO:'ATESTADO',FERIAS:'FÉRIAS',FOLGA:'FOLGA',FALTA:'FALTA',PLANTAO_NOTURNO:'PLANTÃO',INCOMPLETO:'—',FDS:''};
+// rótulo exibido: status conhecido → rótulo bonito; status DIGITADO à mão → o próprio texto
+function labelStatus(s){ return (s in ST_KNOWN) ? ST_KNOWN[s] : (s||''); }
+// converte o que foi digitado/escolhido de volta pra chave interna (aceita os rótulos com acento);
+// texto que não bate com nenhum status conhecido é mantido como status PERSONALIZADO (cru)
+function normStatus(v){
+  v=(v==null?'':String(v)).trim();
+  if(v==='')return 'OK';
+  if(v==='—')return 'INCOMPLETO';
+  const up=v.toUpperCase();
+  const back={'ATESTADO':'ATESTADO','FÉRIAS':'FERIAS','FERIAS':'FERIAS','FÉRIAS ':'FERIAS','FOLGA':'FOLGA','FALTA':'FALTA','PLANTÃO':'PLANTAO_NOTURNO','PLANTAO':'PLANTAO_NOTURNO','PLANTÃO_NOTURNO':'PLANTAO_NOTURNO','OK':'OK','SÁB':'FDS','SAB':'FDS','DOM':'FDS','FDS':'FDS','INCOMPLETO':'INCOMPLETO'};
+  return (up in back) ? back[up] : v;   // custom → mantém o texto digitado
+}
 function renderSheet(){
   const t=document.getElementById('folha');
   let html='<thead><tr><th style="width:110px">Data</th><th>Entrada</th><th>Saída</th><th>Status</th><th>Observação</th></tr></thead><tbody>';
@@ -746,22 +767,24 @@ function renderSheet(){
     // conteúdo das células de horário: mostra SÁB/DOM se fds sem dados; senão horário editável
     let entCell,saiCell;
     if(g.status==='FDS'&&!g.hasData){entCell=g.dow===6?'SÁB':'DOM';saiCell=entCell;}
-    else if(['ATESTADO','FERIAS','FOLGA','FALTA'].includes(g.status)){entCell=labelStatus(g.status);saiCell='';}
+    else if(isAfastamento(g.status)){entCell=labelStatus(g.status);saiCell='';}
     else{entCell=g.entrada||'';saiCell=g.saida||'';}
     html+='<tr class="'+wk+at+note+'" data-i="'+i+'">'+
       '<td class="dcol">'+esc(dlabel)+'</td>'+
       '<td><input class="cell" data-k="entrada" value="'+esc(entCell)+'"></td>'+
       '<td><input class="cell" data-k="saida" value="'+esc(saiCell)+'"></td>'+
-      '<td class="stcol"><select class="stsel" data-k="status">'+STATUSES.map(s=>'<option value="'+s+'"'+(s===g.status?' selected':'')+'>'+(labelStatus(s)||'—')+'</option>').join('')+'</select></td>'+
+      '<td class="stcol"><input class="stsel" list="statusOpts" data-k="status" value="'+esc(labelStatus(g.status))+'" placeholder="—" autocomplete="off"></td>'+
       '<td class="obscol"><input class="cell" data-k="obs" value="'+esc(g.obs||'')+'" placeholder=""></td>'+
     '</tr>';
   });
   html+='</tbody>';
   t.innerHTML=html;
-  t.querySelectorAll('input.cell,select.stsel').forEach(el=>{
+  t.querySelectorAll('input.cell,input.stsel').forEach(el=>{
     el.addEventListener('change',e=>{
       const tr=e.target.closest('tr'); const i=+tr.dataset.i; const k=e.target.dataset.k;
-      GRID[i][k]=e.target.value; if(k==='status'||k==='entrada'||k==='saida')recalc();
+      let v=e.target.value;
+      if(k==='status'){ v=normStatus(v); e.target.value=labelStatus(v); }   // normaliza e mostra o rótulo
+      GRID[i][k]=v; if(k==='status'||k==='entrada'||k==='saida')recalc();
     });
   });
   recalc();
@@ -772,7 +795,7 @@ function toMin(hhmm){const m=/^(\d{1,2}):(\d{2})/.exec(hhmm);return m?(+m[1])*60
 function recalc(){
   let totMin=0,dias=0,pend=0,atest=0;
   GRID.forEach(g=>{
-    if(['ATESTADO','FERIAS','FOLGA','FALTA'].includes(g.status)){atest++;return;}
+    if(isAfastamento(g.status)){atest++;return;}
     const e=toMin(g.entrada),s=toMin(g.saida);
     if(e!=null&&s!=null){ let dur=s-e; if(dur<0)dur+=24*60; totMin+=dur; dias++; }
     else if(g.hasData){pend++;}
@@ -814,7 +837,7 @@ function computeWeeks(){
     const anchor=g.d-offset;             // "segunda" da semana desse dia
     if(!weeks[anchor])weeks[anchor]={dias:[],totalMin:0};
     weeks[anchor].dias.push(g.d);
-    if(!['ATESTADO','FERIAS','FOLGA','FALTA'].includes(g.status)){
+    if(!isAfastamento(g.status)){
       const e=toMin(g.entrada),s=toMin(g.saida);
       if(e!=null&&s!=null){ let dur=s-e; if(dur<0)dur+=24*60; weeks[anchor].totalMin+=dur; }
     }
@@ -852,14 +875,19 @@ function buildSheetHTML(){
   const mes=+g('h_mes'),ano=+g('h_ano');
   const meses=['','janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
   const totMin=recalc();const H=Math.floor(totMin/60),M=totMin%60;
-  const dias=GRID.filter(x=>!['ATESTADO','FERIAS','FOLGA','FALTA'].includes(x.status)&&toMin(x.entrada)!=null&&toMin(x.saida)!=null).length;
+  const dias=GRID.filter(x=>!isAfastamento(x.status)&&toMin(x.entrada)!=null&&toMin(x.saida)!=null).length;
   const hms=t=>{ if(!t)return ''; if(/^\d{1,2}:\d{2}:\d{2}$/.test(t))return t; if(/^\d{1,2}:\d{2}$/.test(t))return t+':00'; return t; };
   let rows='';
+  const ST_SISTEMA=['OK','INCOMPLETO','PLANTAO_NOTURNO','FDS'];
   GRID.forEach(x=>{
     let ent,sai,obs='';
-    if(['ATESTADO','FERIAS','FOLGA','FALTA'].includes(x.status)){ent='';sai='';obs=labelStatus(x.status);}
+    if(isAfastamento(x.status)){ent='';sai='';obs=labelStatus(x.status);}
     else if(x.status==='FDS'&&!x.hasData){ent=x.dow===6?'SÁB':'DOM';sai=ent;}
-    else{ent=hms(x.entrada);sai=hms(x.saida);obs=x.obs?esc(x.obs):'';}
+    else{
+      ent=hms(x.entrada);sai=hms(x.saida);obs=x.obs?esc(x.obs):'';
+      // status DIGITADO à mão (fora dos de sistema) aparece na 4ª coluna da folha
+      if(x.status && !ST_SISTEMA.includes(x.status)){ const lbl=esc(labelStatus(x.status)); if(lbl)obs=obs?(lbl+' · '+obs):lbl; }
+    }
     const dstr=pad2(x.d)+'/'+pad2(mes)+'/'+ano;
     rows+=`<tr><td class="dc">${dstr}</td><td>${esc(ent)}</td><td>${esc(sai)}</td><td class="oc">${obs}</td></tr>`;
   });
