@@ -133,7 +133,7 @@ input[readonly]{background:var(--bg);color:var(--ink);font-weight:600;cursor:def
 </head>
 <body>
 <header class="top noprint">
-  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC</small></div></div>
+  <div class="logo"><span class="mark ti ti-clock-hour-9"></span><div>PontoAI<small>Tratamento de ponto — HRSC · <span id="appVer">v29</span></small></div></div>
 </header>
 
 <div class="wrap">
@@ -419,13 +419,13 @@ async function ingest(f){
       SOURCES.push({name:f.name,kind:'pdf',records,meta});
       toast(records.length+' batidas lidas do PDF','ok');
     }else{
-      // PDF sem NENHUMA batida de texto = quase sempre uma foto/scan salvo como PDF
-      // (ex.: folha manual fotografada e exportada em "Salvar como PDF"). Renderiza a
-      // página como imagem e trata como foto — assim a IA consegue ler mesmo assim.
-      const dataUrl=await pdfPageToImage(buf,1,2.2);
+      // PDF sem NENHUMA batida de texto = quase sempre uma folha manual escaneada / salva
+      // como PDF. Manda o PDF DIRETO pra IA (o Gemini lê PDF nativamente, inclusive escaneado)
+      // — mais robusto do que rasterizar em canvas (que dependia de render/rAF e podia falhar).
+      const dataUrl=await fileToDataURL(f);           // data:application/pdf;base64,...
       const b64=dataUrl.split(',')[1];
-      SOURCES.push({name:f.name,kind:'image',records:[],image:{mime:'image/jpeg',b64,dataUrl},fromPdf:true});
-      toast('PDF sem texto — tratado como <b>foto</b> da folha manual (a IA vai ler ao gerar).','ok');
+      SOURCES.push({name:f.name,kind:'image',records:[],image:{mime:'application/pdf',b64,dataUrl},fromPdf:true});
+      toast('PDF sem batidas de texto — será lido pela IA como <b>folha manual</b> ao gerar.','ok');
     }
   }else if(['xls','xlsx','csv'].includes(ext)){
     const {records,meta}=await parseSheet(await fileToArrayBuffer(f),f.name);
@@ -604,7 +604,7 @@ async function aiTreat(){
   const compact=GRID.filter(g=>g.hasData||g.obs).map(g=>({dia:g.key,entrada:g.entrada,saida:g.saida,status:g.status,obs:g.obs}));
   const prompt=
 `Você trata folhas de ponto de profissionais de saúde do HRSC (residência médica ou Programa Mais Especialistas). Mês ${pad2(mes)}/${ano}.
-Recebe: (1) uma consolidação automática por dia (1ª entrada / última saída extraídas de catraca/relógio) e, se houver, (2) FOTOS de uma folha de presença MANUAL preenchida à mão (ex.: formulário "Frequência da Residência Multi" — cabeçalho com RESIDENTE/PROGRAMA/RODÍZIO/MÊS-ANO, seguido de uma tabela com os dias do mês em DOIS BLOCOS lado a lado: bloco esquerdo = dias 1 a 16, bloco direito = dias 17 a 31, cada um com colunas DIA / ENTRADA / SAÍDA). Preste muita atenção para não confundir os dois blocos nem trocar a linha/dia ao ler a letra manuscrita.
+Recebe: (1) uma consolidação automática por dia (1ª entrada / última saída extraídas de catraca/relógio) e, se houver, (2) uma FOTO ou PDF ESCANEADO de uma folha de presença MANUAL preenchida à mão (ex.: formulário "Frequência da Residência Multi" — cabeçalho com RESIDENTE/PROGRAMA/RODÍZIO/MÊS-ANO, seguido de uma tabela com os dias do mês em DOIS BLOCOS lado a lado: bloco esquerdo = dias 1 a 16, bloco direito = dias 17 a 31, cada um com colunas DIA / ENTRADA / SAÍDA). Preste muita atenção para não confundir os dois blocos nem trocar a linha/dia ao ler a letra manuscrita.
 A folha manual existe justamente para cobrir dias em que a catraca falhou ou não foi usada — portanto é NORMAL e ESPERADO que um dia tenha anotação manual mesmo sem NENHUM dado na consolidação automática. Extraia TODO dia com qualquer marcação manuscrita (entrada e/ou saída, mesmo que só um dos dois esteja preenchido), não apenas os dias que já aparecem na consolidação automática abaixo.
 Tarefas:
 - Leia a foto e concilie POR DATA (dia do mês + o mês/ano informado acima): extraia entrada/saída manuscritas de cada dia preenchido. Quando a folha manual e a consolidação automática divergirem para o mesmo dia, a folha MANUAL tem prioridade (foi conferida/assinada pelo residente e pelo supervisor).
