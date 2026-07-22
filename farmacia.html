@@ -283,6 +283,40 @@ function openModal(title,icon,bodyHTML,footerHTML){
 }
 function closeModal(){ $('#modalRoot').innerHTML=''; }
 
+/* ================= dados de exemplo ================= */
+function seedDemo(){
+  if(FUNCS.length && !confirm('Isto vai substituir os dados atuais por uma equipe de exemplo. Continuar?'))return;
+  // 12 funcionários: 2 balconistas + 1 entregador + 1 caixa por turno
+  FUNCS=[
+    {id:'s1', nome:'Maria Silva',      catId:'balconista', turnoId:'manha', entrada:'07:00', saida:'13:00', folgas:[0], horaExtra:true,  folgaFeriado:true,  saldoInicial:0},
+    {id:'s2', nome:'João Souza',       catId:'balconista', turnoId:'manha', entrada:'07:00', saida:'13:00', folgas:[1], horaExtra:false, folgaFeriado:false, saldoInicial:0},
+    {id:'s3', nome:'Ana Costa',        catId:'balconista', turnoId:'tarde', entrada:'13:00', saida:'19:00', folgas:[2], horaExtra:true,  folgaFeriado:false, saldoInicial:0},
+    {id:'s4', nome:'Pedro Alves',      catId:'balconista', turnoId:'tarde', entrada:'13:00', saida:'19:00', folgas:[3], horaExtra:false, folgaFeriado:false, saldoInicial:0},
+    {id:'s5', nome:'Beatriz Lima',     catId:'balconista', turnoId:'noite', entrada:'19:00', saida:'22:00', folgas:[4], horaExtra:false, folgaFeriado:false, saldoInicial:0},
+    {id:'s6', nome:'Carla Mendes',     catId:'balconista', turnoId:'noite', entrada:'19:00', saida:'22:00', folgas:[5], horaExtra:false, folgaFeriado:true,  saldoInicial:0},
+    {id:'s7', nome:'Lucas Rocha',      catId:'entregador', turnoId:'manha', entrada:'07:00', saida:'13:00', folgas:[0], horaExtra:false, folgaFeriado:false, saldoInicial:0},
+    {id:'s8', nome:'Rafael Dias',      catId:'entregador', turnoId:'tarde', entrada:'13:00', saida:'19:00', folgas:[1], horaExtra:true,  folgaFeriado:false, saldoInicial:0},
+    {id:'s9', nome:'Bruno Gomes',      catId:'entregador', turnoId:'noite', entrada:'19:00', saida:'22:00', folgas:[6], horaExtra:false, folgaFeriado:false, saldoInicial:0},
+    {id:'s10',nome:'Fernanda Reis',    catId:'caixa',      turnoId:'manha', entrada:'07:00', saida:'13:00', folgas:[0], horaExtra:false, folgaFeriado:true,  saldoInicial:0},
+    {id:'s11',nome:'Juliana Martins',  catId:'caixa',      turnoId:'tarde', entrada:'13:00', saida:'19:00', folgas:[3], horaExtra:false, folgaFeriado:false, saldoInicial:0},
+    {id:'s12',nome:'Patrícia Nunes',   catId:'caixa',      turnoId:'noite', entrada:'19:00', saida:'22:00', folgas:[5], horaExtra:false, folgaFeriado:false, saldoInicial:0},
+  ];
+  // troca: Ana troca com Pedro (ambos balconista/tarde) em dois dias
+  TROCAS=[{id:'st1', aId:'s3', bId:'s4', datas:['2026-07-22','2026-07-27'], obs:'consulta médica'}];
+  // banco de horas (demandas especiais)
+  BANCO=[
+    {id:'sb1', funcId:'s1', data:'2026-07-10', horas:2,    motivo:'Inventário de estoque'},
+    {id:'sb2', funcId:'s3', data:'2026-07-15', horas:1.5,  motivo:'Reposição de estoque'},
+    {id:'sb3', funcId:'s8', data:'2026-07-18', horas:-1,   motivo:'Saída antecipada (compensação)'},
+    {id:'sb4', funcId:'s7', data:'2026-07-20', horas:3,    motivo:'Entrega extra (demanda especial)'},
+  ];
+  // feriado de exemplo (quinta) — quem tem "folga em feriado" sai de folga
+  FERIAS=[{data:'2026-07-23', nome:'Aniversário da cidade'}];
+  ensureMinimos();
+  saveAll(); render();
+  toast('Equipe de exemplo carregada — veja o alerta de desfalque na Escala diária de hoje','ok');
+}
+
 /* ============================================================
    ABA: FUNCIONÁRIOS
    ============================================================ */
@@ -305,9 +339,10 @@ function renderFunc(){
   html+='<div class="card">'
     +'<h2><i class="ti ti-users"></i> Funcionários <span class="tag gray">'+FUNCS.length+'</span></h2>'
     +'<p class="hint">Clique em um nome para ver folga da semana, hora extra, folga de feriado e o saldo do banco de horas.</p>'
-    +'<div class="row-actions" style="margin-top:0;margin-bottom:14px"><button class="btn btn-primary btn-sm" id="btnNovo"><i class="ti ti-user-plus"></i> Novo funcionário</button></div>';
+    +'<div class="row-actions" style="margin-top:0;margin-bottom:14px"><button class="btn btn-primary btn-sm" id="btnNovo"><i class="ti ti-user-plus"></i> Novo funcionário</button>'
+    +'<button class="btn btn-ghost btn-sm" id="btnExemplo"><i class="ti ti-flask"></i> Carregar exemplo</button></div>';
   if(FUNCS.length===0){
-    html+='<div class="empty"><i class="ti ti-users-plus"></i>Nenhum funcionário ainda.<br>Importe uma planilha, cole a lista de nomes ou cadastre manualmente.</div>';
+    html+='<div class="empty"><i class="ti ti-users-plus"></i>Nenhum funcionário ainda.<br>Importe uma planilha, cole a lista de nomes, cadastre manualmente<br>ou clique em <b>“Carregar exemplo”</b> para testar com uma equipe fictícia.</div>';
   }else{
     byCat.forEach(g=>{
       if(g.list.length===0)return;
@@ -326,6 +361,7 @@ function renderFunc(){
 
   // wire
   $('#btnNovo').onclick=()=>openFuncForm(null);
+  $('#btnExemplo').onclick=seedDemo;
   $('#btnModelo').onclick=downloadModelo;
   $('#btnColar').onclick=openColar;
   const drop=$('#drop'),file=$('#file');
